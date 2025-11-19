@@ -1,8 +1,8 @@
-# metrics/models.py
 from django.conf import settings
 from django.utils import timezone
 from core.models import User
 from django.db import models
+from django.core.exceptions import ValidationError
 
 
 class SupportTicket(models.Model):
@@ -11,7 +11,6 @@ class SupportTicket(models.Model):
         IN_PROGRESS = "in_progress", "В работе"
         DONE = "done", "Выполнено"
 
-    # дублируем массив для совместимости
     STATUS_CHOICES = [
         (Status.RECEIVED, "Получено"),
         (Status.IN_PROGRESS, "В работе"),
@@ -67,7 +66,7 @@ class SupportTicket(models.Model):
 
     @classmethod
     def create_ticket(cls, user_id: int, username: str = None) -> "SupportTicket":
-        """Фабричный метод для создания тикета с автогенерацией ID."""
+        """Метод для создания тикета с автогенерацией ID."""
         return cls.objects.create(
             user_id=user_id,
             username=username,
@@ -155,7 +154,7 @@ class Message(models.Model):
     ]
 
     recipient = models.ForeignKey(
-        User,  # или своя модель пользователя
+        User,
         on_delete=models.CASCADE,
         related_name='messages'
     )
@@ -167,7 +166,6 @@ class Message(models.Model):
     )
     send_attempts = models.PositiveIntegerField(default=0)
 
-    # Кнопка
     button_text = models.CharField(max_length=100, blank=True, null=True)
     button_command = models.CharField(max_length=200, blank=True, null=True)
     button_url = models.URLField(blank=True, null=True)
@@ -180,8 +178,6 @@ class Message(models.Model):
         verbose_name_plural = 'Сообщения'
 
     def clean(self):
-        from django.core.exceptions import ValidationError
-        # Проверка: должна быть либо команда, либо URL
         if self.button_command and self.button_url:
             raise ValidationError('Для кнопки можно указать только команду или URL, но не оба одновременно.')
         if not self.button_command and not self.button_url and self.button_text:

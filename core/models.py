@@ -4,12 +4,13 @@ from datetime import timedelta
 from django.db import models
 from django.utils import timezone
 
+
 class UserRole(models.TextChoices):
     STUDENT = "student", "Ученик"
     TUTOR = "tutor", "Репетитор"
     SCHOOL_TEACHER = "school_teacher", "Школьный учитель"
 
-# --- Subjects ---
+
 class SubjectChoices(models.TextChoices):
     MATH = "math", "Математика"
     FOREIGN_LANG = "foreign_lang", "Иностранный язык"
@@ -21,7 +22,7 @@ class SubjectChoices(models.TextChoices):
     PHYSICS = "physics", "Физика"
     OTHER = "other", "Другое"
 
-# --- Levels ---
+
 class LevelChoices(models.TextChoices):
     GRADE_1_4 = "grade_1_4", "1-4 классы"
     GRADE_5_7 = "grade_5_7", "5-7 классы"
@@ -54,38 +55,33 @@ class User(models.Model):
     def __str__(self):
         return f"{self.telegram_username or self.telegram_id} ({self.remaining_generations} генераций)"
 
+
 class Payment(models.Model):
     user = models.ForeignKey("core.User", on_delete=models.CASCADE, related_name="payments")
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     currency = models.CharField(max_length=10, default="RUB")
     created_at = models.DateTimeField(auto_now_add=True)
 
-    # ID платежа у провайдера (если появится)
     payment_id = models.CharField(max_length=255, blank=True, null=True)
     payment_method_id = models.CharField(max_length=255, blank=True, null=True)
 
-    # хранить payload Telegram-инвойса — удобно для поиска и проверки
     payload = models.CharField(max_length=255, blank=True, null=True)
     telegram_invoice_payload = models.CharField(max_length=255, blank=True, null=True)
 
-    # provider_charge_id / provider_payment_charge_id (YooKassa / YooMoney)
     provider_charge_id = models.CharField(max_length=255, blank=True, null=True)
 
-    # telegram charge id (telegram_payment_charge_id)
     telegram_charge_id = models.CharField(max_length=255, blank=True, null=True)
 
-    # raw provider data (receipt / vendor response) и order_info от Telegram
     provider_data = models.JSONField(blank=True, null=True)
     order_info = models.JSONField(blank=True, null=True)
 
-    # необязательно: info о сообщении "Обрабатываем платёж..." чтобы потом редактировать
     processing_chat_id = models.BigIntegerField(blank=True, null=True)
     processing_message_id = models.BigIntegerField(blank=True, null=True)
 
-    status = models.CharField(max_length=20, default="pending")  # pending / succeeded / failed / cancelled
+    status = models.CharField(max_length=20, default="pending")
 
     def __str__(self):
-        return f"{self.user} — {self.amount} {self.currency} — {self.status}"
+        return f"{self.user} - {self.amount} {self.currency} - {self.status}"
 
 
 class GenerationStatus(models.Model):
@@ -108,13 +104,13 @@ class GenerationStatus(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def progress_percent(self) -> int:
-        """Вернуть прогресс в процентах (0–100)."""
         if self.total == 0:
             return 0
         return min(100, int((self.completed / self.total) * 100))
 
     def __str__(self):
         return f"Генерация для урока {self.lesson.title}: {self.progress_percent()}%"
+
 
 class ImproveStatus(models.Model):
     class Status(models.TextChoices):
@@ -150,13 +146,14 @@ class Lesson(models.Model):
     def __str__(self):
         return self.title
 
+
 class LessonBlock(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     lesson = models.ForeignKey("Lesson", on_delete=models.CASCADE, related_name="blocks")
     order = models.PositiveIntegerField()
-    title = models.CharField(max_length=255)  # название блока
-    content = models.TextField()              # основной текст
-    has_task = models.BooleanField(default=False)  # есть ли в блоке задание
+    title = models.CharField(max_length=255)
+    content = models.TextField()
+    has_task = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

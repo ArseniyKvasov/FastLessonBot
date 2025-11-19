@@ -8,7 +8,6 @@ app = Celery("fastlesson")
 app.config_from_object("django.conf:settings", namespace="CELERY")
 app.autodiscover_tasks()
 
-# расписания
 app.conf.beat_schedule = {
     "send-pending-messages-every-20-minutes": {
         "task": "metrics.tasks.send_pending_messages",

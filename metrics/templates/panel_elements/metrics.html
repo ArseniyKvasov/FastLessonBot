@@ -38,46 +38,46 @@
         <div class="card-body">
             <h5 class="card-title">Пользователи</h5>
             {% if user_metrics_qs and user_metrics_qs.exists %}
-                <div class="table-responsive">
-                    <table class="table table-sm table-hover align-middle">
-                        <thead class="table-light">
-                            <tr>
-                                <th>#</th>
-                                <th>Telegram_id</th>
-                                <th>Имя</th>
-                                <th>Роль</th>
-                                <th>Уровни</th>
-                                <th>Зарегистрирован</th>
-                                <th>Последняя активность</th>
-                                <th>Retention (дн)</th>
-                                <th>Последняя генерация</th>
-                                <th>PDF</th>
-                                <th>Осталось генераций</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for u in user_metrics_qs %}
-                                <tr>
-                                    <td>{{ u.user.id }}</td>
-                                    <td>{{ u.user.telegram_id }}</td>
-                                    <td>@{{ u.user.telegram_username }}</td>
-                                    <td>{{ u.user.role }}</td>
-                                    <td>{{ u.user.level }}</td>
-                                    <td>{{ u.registered_at }}</td>
-                                    <td>{{ u.last_active_at }}</td>
-                                    <td>{{ u.retention_days }}</td>
-                                    <td>{{ u.last_generated_at|default:'-' }}</td>
-                                    <td>{{ u.pdf_download_count }}</td>
-                                    <td>
-                                        <strong>{{ u.user.remaining_generations }}</strong><br>
-                                    </td>
-                                </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle">
+                    <thead class="table-light">
+                    <tr>
+                        <th>#</th>
+                        <th>Telegram_id</th>
+                        <th>Имя</th>
+                        <th>Роль</th>
+                        <th>Уровни</th>
+                        <th>Зарегистрирован</th>
+                        <th>Последняя активность</th>
+                        <th>Retention (дн)</th>
+                        <th>Последняя генерация</th>
+                        <th>PDF</th>
+                        <th>Осталось генераций</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {% for u in user_metrics_qs %}
+                    <tr>
+                        <td>{{ u.user.id }}</td>
+                        <td>{{ u.user.telegram_id }}</td>
+                        <td>@{{ u.user.telegram_username }}</td>
+                        <td>{{ u.user.role }}</td>
+                        <td>{{ u.user.level }}</td>
+                        <td>{{ u.registered_at }}</td>
+                        <td>{{ u.last_active_at }}</td>
+                        <td>{{ u.retention_days }}</td>
+                        <td>{{ u.last_generated_at|default:'-' }}</td>
+                        <td>{{ u.pdf_download_count }}</td>
+                        <td>
+                            <strong>{{ u.user.remaining_generations }}</strong><br>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
             {% else %}
-                <div class="alert alert-info">Данных по пользователям нет.</div>
+            <div class="alert alert-info">Данных по пользователям нет.</div>
             {% endif %}
         </div>
     </div>

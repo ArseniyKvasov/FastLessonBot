@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import uuid
 from decimal import Decimal
 
@@ -14,10 +15,8 @@ from django.core.exceptions import PermissionDenied
 from django.utils import timezone
 
 from core.models import User, Payment
-from fastlesson_bot.config import YOOMONEY_PROVIDER_TOKEN
 from fastlesson_bot.services.rate_limit import check_rate_limit
 
-# --- Логирование ---
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
@@ -32,6 +31,7 @@ PRODUCT_PAYLOAD_PREFIX = "fastlesson_50"
 PRODUCT_AMOUNT_RUB = Decimal("290.00")
 PRODUCT_AMOUNT_SMALLEST = int(PRODUCT_AMOUNT_RUB * 100)
 PRODUCT_QTY = 50
+YOOMONEY_PROVIDER_TOKEN = os.environ.get("YOOMONEY_PROVIDER_TOKEN")
 
 
 def _main_kb():
@@ -150,19 +150,16 @@ async def buy_callback(callback: types.CallbackQuery):
             await callback.answer(f"⚠️ {str(e)}")
             return
 
-        # Получаем или создаем пользователя
         user, created = await sync_to_async(
             lambda: User.objects.get_or_create(
                 telegram_id=callback.from_user.id,
             )
         )()
 
-        # Создаём уникальный payload для этой транзакции
         invoice_payload = f"{PRODUCT_PAYLOAD_PREFIX}_{uuid.uuid4().hex}"
 
         prices = [LabeledPrice(label=PRODUCT_TITLE, amount=PRODUCT_AMOUNT_SMALLEST)]
 
-        # Подготовка данных для чека
         provider_data = {
             "receipt": {
                 "items": [
@@ -170,7 +167,7 @@ async def buy_callback(callback: types.CallbackQuery):
                         "description": PRODUCT_TITLE,
                         "quantity": 1,
                         "amount": {
-                            "value":  prices[0].amount / 100,  # Конвертируем из копеек в рубли
+                            "value": prices[0].amount / 100,  # Конвертируем из копеек в рубли
                             "currency": "RUB"
                         },
                         "vat_code": 1,
@@ -182,7 +179,6 @@ async def buy_callback(callback: types.CallbackQuery):
             }
         }
 
-        # Отправляем инвойс
         await callback.bot.send_invoice(
             chat_id=chat_id,
             title=PRODUCT_TITLE,
@@ -193,8 +189,8 @@ async def buy_callback(callback: types.CallbackQuery):
             prices=prices,
             start_parameter="fastlesson_payment",
             need_email=True,
-            send_email_to_provider=True,  # Добавляем эту опцию
-            provider_data=json.dumps(provider_data)  # Добавляем данные провайдера
+            send_email_to_provider=True,
+            provider_data=json.dumps(provider_data)
         )
 
     except Exception as e:
@@ -206,7 +202,6 @@ async def buy_callback(callback: types.CallbackQuery):
 async def process_pre_checkout_query(pre_checkout_query: PreCheckoutQuery):
     """
     Обработка pre-checkout запроса от Telegram.
-    Нужно обязательно подтвердить платеж.
     """
     await pre_checkout_query.answer(ok=True)
 
@@ -216,22 +211,18 @@ async def successful_payment_handler(message: types.Message):
     try:
         sp = message.successful_payment
 
-        # основные поля
         provider_payment_charge_id = getattr(sp, "provider_payment_charge_id", None)
         telegram_payment_charge_id = getattr(sp, "telegram_payment_charge_id", None)
         invoice_payload = getattr(sp, "invoice_payload", None)
         total_amount = (Decimal(getattr(sp, "total_amount", 0)) / 100).quantize(Decimal("0.01"))
         currency = getattr(sp, "currency", "RUB")
 
-        # order_info — попробуем преобразовать в dict (без падений)
         order_info = None
         order_info_obj = getattr(sp, "order_info", None)
         if order_info_obj:
             try:
-                # aiogram order_info может иметь метод .to_python() или атрибуты — пробуем безопасно
                 order_info = order_info_obj.to_python()
             except Exception:
-                # fallback - собрать ручками
                 order_info = {
                     "name": getattr(order_info_obj, "name", None),
                     "phone_number": getattr(order_info_obj, "phone_number", None),
@@ -252,14 +243,10 @@ async def successful_payment_handler(message: types.Message):
                             "post_code": getattr(shipping, "post_code", None),
                         }
 
-        # provider_data — если ты передаёшь provider_data в send_invoice, Telegram должен вернуть provider_payment_charge_id,
-        # но провайдерские данные можно сохранить отдельно (если приходят). Попробуем взять raw provider_data из sp (если есть)
         provider_data = None
         if hasattr(sp, "provider_payment_charge_id") or hasattr(sp, "provider_data"):
-            # aiogram не всегда сохраняет provider_data в успешном платеже, но если есть - сохраняем
             provider_data = getattr(sp, "provider_data", None)
 
-        # Получаем или создаём пользователя
         def get_user():
             return User.objects.filter(telegram_id=message.from_user.id).first()
 
@@ -267,9 +254,9 @@ async def successful_payment_handler(message: types.Message):
         if not user:
             def create_user():
                 return User.objects.create(telegram_id=message.from_user.id)
+
             user = await sync_to_async(create_user)()
 
-        # Собираем kwargs для создания Payment
         payment_kwargs = {
             "user": user,
             "amount": total_amount,
@@ -290,7 +277,6 @@ async def successful_payment_handler(message: types.Message):
 
         payment = await sync_to_async(create_payment)()
 
-        # Начисляем продукт (тот же код, что у тебя был)
         success = True
         try:
             updated = False
@@ -307,12 +293,12 @@ async def successful_payment_handler(message: types.Message):
             if updated:
                 def save_user():
                     user.save()
+
                 await sync_to_async(save_user)()
         except Exception:
             logger.exception("Ошибка при начислении генераций", exc_info=True)
             success = False
 
-        # Ответ пользователю
         if success:
             text = (
                 f"✅ Платёж успешно принят. Спасибо!\n"

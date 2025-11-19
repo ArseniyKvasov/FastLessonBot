@@ -12,9 +12,11 @@ from django.contrib.admin.views.decorators import staff_member_required
 
 from fastlesson_bot.config import BOT_TOKEN as bot_token
 
+
 @staff_member_required
 def metrics(request):
     return render(request, "panel.html")
+
 
 @staff_member_required
 def send_mass_message(request):
@@ -33,12 +35,10 @@ def send_mass_message(request):
         messages.error(request, "Текст сообщения обязателен")
         return redirect(request.META.get("HTTP_REFERER", "/"))
 
-    # Проверка кнопок
     if button_url and button_command:
         messages.error(request, "Можно указать только URL или команду, но не оба")
         return redirect(request.META.get("HTTP_REFERER", "/"))
 
-    # Определяем получателей
     if targets_type == "all" or targets == "all":
         recipients = User.objects.all()
     else:
@@ -49,7 +49,6 @@ def send_mass_message(request):
         messages.error(request, "Получатели не найдены")
         return redirect(request.META.get("HTTP_REFERER", "/"))
 
-    # Создаём записи в БД
     for user in recipients:
         Message.objects.create(
             recipient=user,
@@ -63,6 +62,7 @@ def send_mass_message(request):
 
     messages.success(request, f"Сообщения ({len(recipients)}) добавлены в очередь")
     return redirect(request.META.get("HTTP_REFERER", "/"))
+
 
 @require_POST
 @staff_member_required
@@ -78,6 +78,7 @@ def support_change_status(request, pk):
         messages.error(request, "❌ Некорректный статус.")
 
     return redirect(request.META.get("HTTP_REFERER", "support_list"))
+
 
 @staff_member_required
 def download_attachment(request, message_id: int):
@@ -96,7 +97,6 @@ def download_attachment(request, message_id: int):
     if not bot_token:
         raise Http404("Bot token not configured")
 
-    # 1) getFile
     getfile_url = f"https://api.telegram.org/bot{bot_token}/getFile"
     resp = requests.get(getfile_url, params={"file_id": msg.attachment_id}, timeout=10)
     resp.raise_for_status()
@@ -107,7 +107,6 @@ def download_attachment(request, message_id: int):
     file_path = data["result"]["file_path"]  # e.g. photos/file_123.jpg
     file_url = f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
 
-    # 2) download & stream
     r = requests.get(file_url, stream=True, timeout=30)
     r.raise_for_status()
 

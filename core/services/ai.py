@@ -1,11 +1,14 @@
 import json
 import logging
+import os
 import random
 from typing import Any, Dict, Optional
 from groq import Groq
 from google import genai
 from google.genai import types
-from fastlesson_bot.config import GROQ_API_KEY, GENAI_API_KEY
+
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+GENAI_API_KEY = os.environ.get("GENAI_API_KEY")
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +58,15 @@ AI_MODELS = [
 ]
 
 genai_client = genai.Client(api_key=GENAI_API_KEY)
-client = Groq(api_key=GROQ_API_KEY)
+try:
+    client = Groq(api_key=GROQ_API_KEY)
+except TypeError:
+    import httpx
+    client = Groq(
+        api_key=GROQ_API_KEY,
+        http_client=httpx.Client()
+    )
+
 
 def extract_json(text: str) -> Optional[Dict[str, Any]]:
     """
@@ -76,9 +87,8 @@ def generate_text(query: str, max_tokens: int = 2500, temperature: float = 0.7, 
     """
     Универсальный генератор JSON-ответа через Google или Groq.
     Возвращает словарь (dict), который можно сразу использовать.
-    Чередует модели из AI_MODELS, пытаясь 2 раза на каждой.
+    Чередует модели из AI_MODELS.
     """
-    # Перемешиваем модели, чтобы чередовать
     models = AI_MODELS.copy()
     random.shuffle(models)
 
@@ -88,8 +98,6 @@ def generate_text(query: str, max_tokens: int = 2500, temperature: float = 0.7, 
 
         for attempt in range(2):
             try:
-                print(f"🔹 Trying model {model} (provider: {provider}), attempt {attempt + 1}")
-
                 if provider == "Google":
                     gen_config = types.GenerateContentConfig(
                         temperature=temperature,
@@ -98,12 +106,10 @@ def generate_text(query: str, max_tokens: int = 2500, temperature: float = 0.7, 
                     )
                     response = genai_client.models.generate_content(
                         model=model,
-                        contents=[query],  # просто строка
+                        contents=[query],
                         config=gen_config,
                     )
-                    incr_usage(model)
                     text = response.text
-                    print(f"➡️ Google model output (first 500 chars): {text[:500]}")
 
                 elif provider == "Groq":
                     msgs = [{"role": "user", "content": query}]
@@ -114,17 +120,13 @@ def generate_text(query: str, max_tokens: int = 2500, temperature: float = 0.7, 
                         temperature=temperature,
                         top_p=top_p,
                     )
-                    incr_usage(model)
                     text = completion.choices[0].message.content
-                    print(f"➡️ Groq model output (first 500 chars): {text[:500]}")
 
                 else:
                     logger.error(f"❌ Unknown provider: {provider}")
                     continue
 
-                # Пытаемся извлечь JSON
                 parsed = extract_json(text)
-                print(f"🔹 Extracted JSON: {parsed} (type: {type(parsed)})")
 
                 if parsed is None:
                     logger.warning(f"⚠️ Could not extract JSON on attempt {attempt + 1} with {model}")
@@ -145,10 +147,3 @@ def generate_text(query: str, max_tokens: int = 2500, temperature: float = 0.7, 
                 logger.error(f"❌ Error with model {model} (attempt {attempt + 1}): {e}")
 
     raise RuntimeError("All models failed to generate valid JSON")
-
-
-def incr_usage(model_name: str):
-    """
-    Заглушка для учёта использования модели (чтобы ты добавил свою реализацию).
-    """
-    logger.info(f"Usage increment for {model_name}")

@@ -11,18 +11,17 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.base import BaseStorage
 from aiogram.types import Chat
 
-# упрощённый импорт токена
 from fastlesson_bot.config import BOT_TOKEN as token
 
 logger = logging.getLogger(__name__)
 
 
 async def _aio_send_message(
-    token: str,
-    chat_id: int,
-    text: str,
-    reply_markup: Any = None,
-    parse_mode: str = "Markdown"
+        token: str,
+        chat_id: int,
+        text: str,
+        reply_markup: Any = None,
+        parse_mode: str = "Markdown"
 ) -> bool:
     """
     Асинхронная отправка через aiogram. Закрывает сессию бота в конце.
@@ -35,7 +34,7 @@ async def _aio_send_message(
             text=text,
             reply_markup=reply_markup,
             disable_web_page_preview=True,
-            parse_mode=parse_mode,  # 👈 добавили
+            parse_mode=parse_mode,
         )
         return True
     finally:
@@ -86,7 +85,6 @@ def send_message_to_user(user, text: str,
     """
     Синхронная оболочка для отправки сообщения пользователю через aiogram.
     Сообщения отправляются в формате Markdown и всегда содержат кнопку "На главную".
-    Работает в shell и в Celery.
     При reset_fsm=True очищает состояние пользователя.
     """
     chat_id = getattr(user, "telegram_id", None)
@@ -94,7 +92,6 @@ def send_message_to_user(user, text: str,
         logger.info("send_message_to_user: user %s has no telegram_id", getattr(user, "id", "unknown"))
         return False
 
-    # клавиатура
     buttons = []
     if button_text:
         try:
@@ -109,7 +106,6 @@ def send_message_to_user(user, text: str,
     reply_markup = InlineKeyboardMarkup(inline_keyboard=buttons)
 
     try:
-        # отправка сообщения
         success = _run_coro_in_thread(
             _aio_send_message(
                 token=token,
@@ -120,7 +116,6 @@ def send_message_to_user(user, text: str,
             )
         )
 
-        # сброс FSM, если указано
         if reset_fsm and storage:
             async def _reset_state():
                 state = FSMContext(

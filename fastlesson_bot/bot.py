@@ -2,13 +2,14 @@ import os
 import django
 import asyncio
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "fastlesson.settings")
-django.setup()
-
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.redis import RedisStorage, DefaultKeyBuilder
-from fastlesson_bot.handlers.init import all_handlers
 from fastlesson_bot.config import BOT_TOKEN, REDIS_HOST, REDIS_PORT, REDIS_DB
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'fastlesson.settings')
+django.setup()
+
+from fastlesson_bot.handlers.init import all_handlers
 
 async def main():
     bot = Bot(token=BOT_TOKEN)
@@ -24,7 +25,7 @@ async def main():
     for router in all_handlers:
         dp.include_router(router)
 
-    print("🤖 Bot is running with RedisStorage...")
+    print("🤖 Bot is running...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

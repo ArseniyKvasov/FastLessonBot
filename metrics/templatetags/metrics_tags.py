@@ -1,4 +1,3 @@
-# metrics/templatetags/metrics_tags.py
 from django import template
 from django.template import loader
 from django.template.exceptions import TemplateDoesNotExist
@@ -18,8 +17,6 @@ register = template.Library()
 def render_support_tickets(context, template_name=None, show_completed=False, status_filter=None, limit=100):
     """
     Подготавливает контекст с тикетами и рендерит указанный шаблон.
-    Данные в контексте:
-        tickets, request, status_change_url, status_choices
     """
     try:
         qs = SupportTicket.objects.all()
@@ -52,6 +49,7 @@ def render_support_tickets(context, template_name=None, show_completed=False, st
     except Exception as e:
         return mark_safe(f"<div class='tag-error'>Ошибка render_support_tickets: {escape(str(e))}</div>")
 
+
 @register.simple_tag(takes_context=True)
 def user_message_block(context, template_name=None, telegram_ids=None, markdown_text="", send_url=None):
     """
@@ -61,7 +59,6 @@ def user_message_block(context, template_name=None, telegram_ids=None, markdown_
     Шаблон по умолчанию: metrics/user_message_block.html
     """
     try:
-        # нормализуем telegram_ids
         targets = "all"
         if telegram_ids:
             if isinstance(telegram_ids, str):
@@ -101,17 +98,15 @@ def user_message_block(context, template_name=None, telegram_ids=None, markdown_
         return mark_safe(f"<div class='tag-error'>Ошибка user_message_block: {escape(str(e))}</div>")
 
 
-
 @register.simple_tag(takes_context=True)
 def render_metrics(context, template_name=None, user_id=None, limit=100):
     """
     Готовит данные метрик.
-    Если user_id указан — передаёт конкретный UserMetrics в контексте (в т.ч. админов).
-    Иначе даёт агрегированные значения (без админов) + queryset пользователей (включая админов).
+    Если user_id указан — передаёт конкретный UserMetrics в контексте.
+    Иначе даёт queryset пользователей (включая админов).
     """
     try:
         if user_id:
-            # Показываем метрики конкретного пользователя (даже если он админ)
             try:
                 um = UserMetrics.objects.get(user_id=user_id)
                 ctx = {"user_metrics": um, "request": context.get("request")}
@@ -122,8 +117,7 @@ def render_metrics(context, template_name=None, user_id=None, limit=100):
             now = timezone.now()
             last_7 = now - timedelta(days=7)
 
-            # агрегации без админов
-            agg_qs = UserMetrics.objects.exclude(user_id__in=[1, 2, 3])
+            agg_qs = UserMetrics.objects.all()
 
             agg = agg_qs.aggregate(
                 total_users=Count("id"),
@@ -132,7 +126,6 @@ def render_metrics(context, template_name=None, user_id=None, limit=100):
             )
             active_last_7 = agg_qs.filter(last_active_at__gte=last_7).count()
 
-            # список всех пользователей (включая админов) для отображения
             user_qs = UserMetrics.objects.order_by("-id")[:limit]
 
             ctx = {
@@ -161,6 +154,7 @@ def render_metrics(context, template_name=None, user_id=None, limit=100):
     except Exception as e:
         return mark_safe(f"<div class='tag-error'>Ошибка render_metrics: {escape(str(e))}</div>")
 
+
 @register.inclusion_tag('panel_elements/message_metrics.html')
 def render_message_table():
     """
@@ -170,7 +164,7 @@ def render_message_table():
     """
     grouped = (
         Message.objects
-        .values('text')  # группируем только по text
+        .values('text')
         .annotate(
             total=Count('id'),
             pending=Count('id', filter=Q(status='pending')),

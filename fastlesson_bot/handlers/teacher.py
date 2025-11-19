@@ -44,8 +44,20 @@ router = Router()
 # -----------------------------
 class CreateLessonStates(StatesGroup):
     waiting_for_title = State()
-    waiting_for_new_title = State()  # для изменения темы существующего урока
+    waiting_for_new_title = State()
 
+
+class EditBlockStates(StatesGroup):
+    waiting_for_new_content = State()
+
+
+class SupportStates(StatesGroup):
+    waiting_message = State()
+
+
+# -----------------------------
+# Форматирование Word
+# -----------------------------
 _FRAC_LATEX_RE = re.compile(r'\\frac\s*\{\s*([^{}]+?)\s*\}\s*\{\s*([^{}]+?)\s*\}')
 _SQRT_LATEX_RE = re.compile(r'\\sqrt\s*\{\s*([^{}]+?)\s*\}')
 _TIMES_LATEX_RE = re.compile(r'\\times|\\cdot')
@@ -55,7 +67,32 @@ _SUB_RE = re.compile(r'_\{([^{}]+?)\s*\}')
 _INLINE_DOLLAR_RE = re.compile(r'\$(.*?)\$', flags=re.S)
 _BLOCK_DOLLAR_RE = re.compile(r'\$\$(.*?)\$\$', flags=re.S)
 
-ALLOWED_TAGS = {"b", "strong", "i", "em", "br", "p", "ul", "ol", "li", "table", "tr", "td", "th", "tbody", "thead", "h1", "h2", "h3", "h4", "h5", "h6", "math"}
+ALLOWED_TAGS = {"b", "strong", "i", "em", "br", "p", "ul", "ol", "li", "table", "tr", "td", "th", "tbody", "thead",
+                "h1", "h2", "h3", "h4", "h5", "h6", "math"}
+
+_SUP_MAP = {
+    "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶",
+    "7": "⁷", "8": "⁸", "9": "⁹", "+": "⁺", "-": "⁻", "=": "⁼", "(": "⁽",
+    ")": "⁾", "n": "ⁿ",
+}
+
+_SUB_MAP = {
+    "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄", "5": "₅", "6": "₆",
+    "7": "₇", "8": "₈", "9": "₉", "+": "₊", "-": "₋", "=": "₌", "(": "₍",
+    ")": "₎", "a": "ₐ", "e": "ₑ", "o": "ₒ", "x": "ₓ", "i": "ᵢ", "r": "ᵣ",
+    "u": "ᵤ", "v": "ᵥ", "t": "ₜ", "n": "ₙ", "h": "ₕ", "k": "ₖ", "l": "ₗ",
+    "m": "ₘ", "s": "ₛ", "p": "ₚ", "y": "ᵧ",
+}
+
+FORMATTING_TAGS = ("b", "strong", "i", "em")
+PUNCTUATION_AFTER = {',', '.', ':', '"', "'", ';', '*', ')', ']', '}', '?', '!', '—', '–'}
+
+MODE_NAMES_RU = {
+    "complexify": "Усложнить",
+    "simplify": "Упростить",
+    "more_tasks": "Добавить задания",
+    "remove_tasks": "Убрать задания"
+}
 
 
 def _convert_latex_to_text(s: str) -> str:
@@ -107,15 +144,18 @@ def sanitize_math_to_text_fragment(s: Optional[str]) -> str:
 def sanitize_html(text: Optional[str]) -> str:
     if not text:
         return ""
+
     text = html.unescape(text)
     text = re.sub(r"(?i)<br\s*/?>", "<br/>", text)
     text = re.sub(r"(?i)</p\s*>", "</p>", text)
     text = re.sub(r"(?i)<p\b[^>]*>", "<p>", text)
     text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text, flags=re.S)
     text = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"<i>\1</i>", text, flags=re.S)
+
     def _quote_repl(m: re.Match) -> str:
         inner = m.group(1)
         return f'"<i>{inner}</i>"'
+
     text = re.sub(r"(?<!\w)'(.*?)'(?!\w)", _quote_repl, text, flags=re.S)
     text = re.sub(r"(?<!\w)`(.*?)`(?!\w)", _quote_repl, text, flags=re.S)
     text = _BLOCK_DOLLAR_RE.sub(lambda m: _convert_latex_to_text(m.group(1)), text)
@@ -130,39 +170,28 @@ def sanitize_html(text: Optional[str]) -> str:
             tag.unwrap()
     return str(soup)
 
-_SUP_MAP = {
-    "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶",
-    "7": "⁷", "8": "⁸", "9": "⁹", "+": "⁺", "-": "⁻", "=": "⁼", "(": "⁽",
-    ")": "⁾", "n": "ⁿ",
-}
-
-_SUB_MAP = {
-    "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄", "5": "₅", "6": "₆",
-    "7": "₇", "8": "₈", "9": "₉", "+": "₊", "-": "₋", "=": "₌", "(": "₍",
-    ")": "₎", "a": "ₐ", "e": "ₑ", "o": "ₒ", "x": "ₓ", "i": "ᵢ", "r": "ᵣ",
-    "u": "ᵤ", "v": "ᵥ", "t": "ₜ", "n": "ₙ", "h": "ₕ", "k": "ₖ", "l": "ₗ",
-    "m": "ₘ", "s": "ₛ", "p": "ₚ", "y": "ᵧ",
-}
-
 
 def _replace_simple_superscripts(text: str) -> str:
     def repl(m):
         chars = m.group(1)
         return ''.join(_SUP_MAP.get(ch, f'^{ch}') for ch in chars)
+
     text = re.sub(r'\^([0-9n+\-=\(\)])', repl, text)
     return text
+
 
 def _replace_simple_subscripts(text: str) -> str:
     def repl(m):
         chars = m.group(1)
         return ''.join(_SUB_MAP.get(ch, f'_{ch}') for ch in chars)
+
     text = re.sub(r'_([0-9a-z+\-=\(\)])', repl, text)
     return text
+
 
 def _append_runs_from_fragment(paragraph, fragment_html: str):
     frag_soup = BeautifulSoup(fragment_html, "html.parser")
 
-    # Преобразуем LaTeX внутри всех текстовых узлов
     for text_node in frag_soup.find_all(string=True):
         if isinstance(text_node, NavigableString):
             new_text = sanitize_math_to_text_fragment(str(text_node))
@@ -170,9 +199,6 @@ def _append_runs_from_fragment(paragraph, fragment_html: str):
             new_text = _replace_simple_subscripts(new_text)
             if new_text != str(text_node):
                 text_node.replace_with(new_text)
-
-    FORMATTING_TAGS = ("b", "strong", "i", "em")
-    PUNCTUATION_AFTER = {',', '.', ':', '"', "'", ';', '*', ')', ']', '}', '?', '!', '—', '–'}
 
     def _first_non_space_char_after(node):
         cur = node
@@ -309,7 +335,6 @@ def sanitize_word(html_text: Optional[str], doc: Document):
                         cell.text = ""
                     except Exception:
                         pass
-                    # Добавляем небольшой внутренний отступ через XML
                     tcPr = cell._tc.get_or_add_tcPr()
                     tcMar = OxmlElement('w:tcMar')
                     for side in ('top', 'start', 'bottom', 'end'):
@@ -335,11 +360,8 @@ def sanitize_word(html_text: Optional[str], doc: Document):
         _add_paragraph(doc, node.decode_contents())
 
 
-
 def markdown_to_html(md_text: str) -> str:
     return markdown.markdown(md_text, extensions=["tables"]);
-
-
 
 
 def subject_kb() -> InlineKeyboardBuilder:
@@ -360,7 +382,7 @@ def level_kb() -> InlineKeyboardBuilder:
 
 def lesson_actions_kb(lesson_id: str, status: Optional[GenerationStatus] = None) -> InlineKeyboardBuilder:
     """Клавиатура действий для детального вида урока.
-    Вместо одной кнопки "Действия" показываем варианты "Посмотреть", "Отправить" и "Скачать".
+    Показываем варианты "Посмотреть", "Отправить" и "Скачать".
     """
     kb = InlineKeyboardBuilder()
     if not status or status.total == 0:
@@ -372,18 +394,14 @@ def lesson_actions_kb(lesson_id: str, status: Optional[GenerationStatus] = None)
         kb.button(text="🔄 Обновить статус", callback_data=f"lesson_status:{lesson_id}")
         kb.button(text="🏠 На главную", callback_data="main_menu")
     else:
-        # Генерация завершена — показываем все действия
+        # Генерация завершена
         kb.button(text="👀 Посмотреть", callback_data=f"lesson_view:{lesson_id}:1")
-        #kb.button(text="📤 Отправить", callback_data=f"lesson_send:{lesson_id}")
         kb.button(text="📥 Скачать", callback_data=f"lesson_download:{lesson_id}")
         kb.button(text="✏️ Изменить тему", callback_data=f"lesson_change_title:{lesson_id}")
         kb.button(text="❌ Удалить урок", callback_data=f"lesson_delete:{lesson_id}")
         kb.button(text="🏠 На главную", callback_data="main_menu")
     kb.adjust(2)
     return kb
-
-class EditBlockStates(StatesGroup):
-    waiting_for_new_content = State()
 
 
 def navigation_kb_for_block(lesson_id: str, block_index: int, total_blocks: int) -> InlineKeyboardBuilder:
@@ -399,15 +417,13 @@ def navigation_kb_for_block(lesson_id: str, block_index: int, total_blocks: int)
 
     # вместо "Удалить" — кнопка "Действия"
     kb.button(text="⚙️ Действия", callback_data=f"lesson_actions:{lesson_id}:{block_index}")
-    #kb.button(text="📤 Отправить", callback_data=f"lesson_send:{lesson_id}")
+    # kb.button(text="📤 Отправить", callback_data=f"lesson_send:{lesson_id}")
     kb.button(text="📥 Скачать", callback_data=f"lesson_download:{lesson_id}")
     kb.button(text="🏠 На главную", callback_data="main_menu")
     kb.adjust(2)
     return kb
 
-# -----------------------
-# Клавиатура действий для конкретного блока
-# -----------------------
+
 def actions_kb_for_block(lesson_id: str, block_index: int) -> InlineKeyboardBuilder:
     kb = InlineKeyboardBuilder()
     kb.button(text="✏️ Редактировать", callback_data=f"lesson_edit:{lesson_id}:{block_index}")
@@ -417,9 +433,7 @@ def actions_kb_for_block(lesson_id: str, block_index: int) -> InlineKeyboardBuil
     kb.adjust(2)
     return kb
 
-# -----------------------------
-# DB-safe wrappers
-# -----------------------------
+
 async def safe_get_lesson(lesson_id: str) -> Optional[Lesson]:
     try:
         return await sync_to_async(Lesson.objects.get)(id=lesson_id)
@@ -444,15 +458,11 @@ async def safe_edit_text(message: types.Message, text: str, **kwargs) -> None:
     try:
         await message.edit_text(text, **kwargs)
     except TelegramBadRequest as e:
-        # мелкие ошибки игнорируем, большие — пробрасываем
         if "message is not modified" in str(e):
             return
         raise
 
 
-# -----------------------------
-# Handlers: Subject & Level selection flow
-# -----------------------------
 @router.callback_query(F.data == "choose_subject")
 async def choose_subject(callback: types.CallbackQuery):
     try:
@@ -472,12 +482,12 @@ async def choose_subject(callback: types.CallbackQuery):
 @router.callback_query(F.data.startswith("subject:"))
 async def subject_selected(callback: types.CallbackQuery):
     subject_key = callback.data.split(":", 1)[1]
-    user = await get_or_create_user(callback.from_user.id, UserRole.SCHOOL_TEACHER, telegram_username=callback.from_user.username)
+    await get_or_create_user(callback.from_user.id, UserRole.SCHOOL_TEACHER,
+                             telegram_username=callback.from_user.username)
     await set_user_subject(callback.from_user.id, subject_key)
 
     label = sanitize_html(SubjectChoices(subject_key).label)
 
-    # Обновляем текст старого сообщения, убираем старые подсказки
     try:
         await safe_edit_text(
             callback.message,
@@ -486,9 +496,8 @@ async def subject_selected(callback: types.CallbackQuery):
             reply_markup=None
         )
     except Exception:
-        pass  # если редактировать не получилось — ничего страшного
+        pass
 
-    # Отправляем сразу клавиатуру для выбора уровня
     await callback.message.answer(
         "Выберите уровень учеников:",
         reply_markup=level_kb().as_markup()
@@ -500,12 +509,12 @@ async def subject_selected(callback: types.CallbackQuery):
 @router.callback_query(F.data.startswith("level:"))
 async def level_selected(callback: types.CallbackQuery, state: FSMContext):
     level_key = callback.data.split(":", 1)[1]
-    user = await get_or_create_user(callback.from_user.id, UserRole.SCHOOL_TEACHER, telegram_username=callback.from_user.username)
+    await get_or_create_user(callback.from_user.id, UserRole.SCHOOL_TEACHER,
+                             telegram_username=callback.from_user.username)
     await set_user_level(callback.from_user.id, level_key)
 
     label = sanitize_html(LevelChoices(level_key).label)
 
-    # Редактируем сообщение с предметом, чтобы убрать "Теперь выберите уровень учеников"
     try:
         await safe_edit_text(
             callback.message,
@@ -513,7 +522,6 @@ async def level_selected(callback: types.CallbackQuery, state: FSMContext):
             parse_mode="HTML"
         )
     except Exception:
-        # если сообщение не редактируется (например, текст совпадает), ничего не делаем
         pass
 
     await state.set_state(CreateLessonStates.waiting_for_title)
@@ -529,12 +537,13 @@ async def receive_lesson_title(message: types.Message, state: FSMContext):
         return
 
     try:
-        await get_or_create_user(message.from_user.id, UserRole.SCHOOL_TEACHER, telegram_username=message.from_user.username)
+        await get_or_create_user(message.from_user.id, UserRole.SCHOOL_TEACHER,
+                                 telegram_username=message.from_user.username)
     except Exception as e:
         pass
 
     user = await get_user_by_tg(message.from_user.id)
-    metrics = await sync_to_async(track_user_activity)(user)
+    await sync_to_async(track_user_activity)(user)
     subject_label, level_label = format_subject_level_labels(user.subject, user.level)
 
     lesson = await create_lesson_for_user(
@@ -547,7 +556,6 @@ async def receive_lesson_title(message: types.Message, state: FSMContext):
     kb = lesson_actions_kb(str(lesson.id))
     kb.adjust(2)
 
-    # Отправляем итоговое сообщение и очищаем состояние
     await message.answer(
         f"✅ Урок «{sanitize_html(lesson.title)}» создан!\n\n"
         f"Предмет: <b>{sanitize_html(subject_label)}</b>\n"
@@ -560,7 +568,6 @@ async def receive_lesson_title(message: types.Message, state: FSMContext):
     await state.clear()
 
 
-
 @router.callback_query(F.data.startswith("lesson_change_title:"))
 async def prompt_change_title(callback: types.CallbackQuery, state: FSMContext):
     lesson_id = callback.data.split(":", 1)[1]
@@ -570,7 +577,8 @@ async def prompt_change_title(callback: types.CallbackQuery, state: FSMContext):
         return
 
     try:
-        await get_or_create_user(callback.from_user.id, UserRole.SCHOOL_TEACHER, telegram_username=callback.from_user.username)
+        await get_or_create_user(callback.from_user.id, UserRole.SCHOOL_TEACHER,
+                                 telegram_username=callback.from_user.username)
     except Exception as e:
         pass
 
@@ -588,8 +596,10 @@ async def prompt_change_title(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(CreateLessonStates.waiting_for_new_title)
     await callback.answer()
 
+
 @router.message(CreateLessonStates.waiting_for_new_title)
 async def receive_new_lesson_title(message: types.Message, state: FSMContext):
+    """Редактирование названия урока"""
     new_title = message.text.strip()
     if not new_title:
         await message.answer(
@@ -598,11 +608,11 @@ async def receive_new_lesson_title(message: types.Message, state: FSMContext):
         return
 
     try:
-        await get_or_create_user(message.from_user.id, UserRole.SCHOOL_TEACHER, telegram_username=message.from_user.username)
+        await get_or_create_user(message.from_user.id, UserRole.SCHOOL_TEACHER,
+                                 telegram_username=message.from_user.username)
     except Exception as e:
         pass
 
-    # Получаем id урока из FSMContext
     data = await state.get_data()
     lesson_id = data.get("edit_lesson_id")
     if not lesson_id:
@@ -616,7 +626,6 @@ async def receive_new_lesson_title(message: types.Message, state: FSMContext):
         await state.clear()
         return
 
-    # Обновляем название
     lesson.title = new_title
     await sync_to_async(lesson.save)()
 
@@ -625,39 +634,33 @@ async def receive_new_lesson_title(message: types.Message, state: FSMContext):
     except Exception:
         pass
 
-    # Кнопка "Назад к уроку"
     kb = InlineKeyboardBuilder()
     kb.button(text="🔙 Об уроке", callback_data=f"lesson_detail:{lesson.id}")
     kb.adjust(1)
 
-    # Отправляем новое сообщение с обновленным названием
     await message.answer(
         f"✅ Название урока успешно изменено!\n\nНовое название: <b>{sanitize_html(new_title)}</b>",
         parse_mode="HTML",
         reply_markup=kb.as_markup()
     )
 
-    # Очищаем состояние
     await state.clear()
 
 
-
-# -----------------------------
-# Handlers: Lesson detail, generation and status
-# -----------------------------
 @router.callback_query(F.data.startswith("lesson_detail:"))
 async def lesson_detail(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     lesson_id = callback.data.split(":", 1)[1]
     lesson = await safe_get_lesson(lesson_id)
     user = await get_user_by_tg(callback.from_user.id)
-    metrics = await sync_to_async(track_user_activity)(user)
+    await sync_to_async(track_user_activity)(user)
     if not lesson:
         await callback.answer("⚠️ Урок не найден", show_alert=True)
         return
 
     try:
-        await get_or_create_user(callback.from_user.id, UserRole.SCHOOL_TEACHER, telegram_username=callback.from_user.username)
+        await get_or_create_user(callback.from_user.id, UserRole.SCHOOL_TEACHER,
+                                 telegram_username=callback.from_user.username)
     except Exception as e:
         pass
 
@@ -680,7 +683,6 @@ async def lesson_detail(callback: types.CallbackQuery, state: FSMContext):
 
     kb = lesson_actions_kb(str(lesson.id), status)
 
-    # Новое сообщение вместо редактирования
     await callback.message.answer(
         text,
         parse_mode="HTML",
@@ -703,7 +705,8 @@ async def lesson_generate(callback: types.CallbackQuery):
         return
 
     try:
-        await get_or_create_user(callback.from_user.id, UserRole.SCHOOL_TEACHER, telegram_username=callback.from_user.username)
+        await get_or_create_user(callback.from_user.id, UserRole.SCHOOL_TEACHER,
+                                 telegram_username=callback.from_user.username)
     except Exception as e:
         pass
 
@@ -715,7 +718,6 @@ async def lesson_generate(callback: types.CallbackQuery):
         await callback.answer("⚠️ Недостаточно прав", show_alert=True)
         return
 
-    # проверяем, остались ли генерации
     remaining = await sync_to_async(lambda: user.remaining_generations)()
 
     if remaining <= 0:
@@ -738,10 +740,8 @@ async def lesson_generate(callback: types.CallbackQuery):
         await callback.answer()
         return
 
-    # списываем одну генерацию
     await sync_to_async(user.decrement_generation)()
 
-    # инициализируем метрики
     metrics = await sync_to_async(track_user_activity)(user)
     await sync_to_async(metrics.update_last_generated)()
 
@@ -749,14 +749,12 @@ async def lesson_generate(callback: types.CallbackQuery):
         await callback.answer("⚠️ Урок не найден", show_alert=True)
         return
 
-    # создаём статус
     await sync_to_async(GenerationStatus.objects.create)(
         lesson=lesson,
         total=0,
         completed=0,
     )
 
-    # генерация успешно запущена → теперь можно убрать старые кнопки
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
@@ -776,7 +774,6 @@ async def lesson_generate(callback: types.CallbackQuery):
         reply_markup=kb.as_markup()
     )
     await callback.answer()
-
 
 
 @router.callback_query(F.data.startswith("lesson_status:"))
@@ -822,15 +819,11 @@ async def check_lesson_status(callback: types.CallbackQuery):
     try:
         await safe_edit_text(callback.message, text, reply_markup=kb.as_markup())
     except TelegramBadRequest as e:
-        # safe_edit_text уже обрабатывает "message is not modified"
         raise
 
     await callback.answer()
 
 
-# -----------------------------
-# Unified Lesson View
-# -----------------------------
 @router.callback_query(F.data.startswith("lesson_view"))
 async def lesson_view(callback: types.CallbackQuery):
     parts = callback.data.split(":")
@@ -838,7 +831,8 @@ async def lesson_view(callback: types.CallbackQuery):
     block_index = int(parts[2]) if len(parts) > 2 else 1
 
     try:
-        await get_or_create_user(callback.from_user.id, UserRole.SCHOOL_TEACHER, telegram_username=callback.from_user.username)
+        await get_or_create_user(callback.from_user.id, UserRole.SCHOOL_TEACHER,
+                                 telegram_username=callback.from_user.username)
     except Exception as e:
         pass
 
@@ -897,12 +891,9 @@ async def lesson_view(callback: types.CallbackQuery):
     await callback.answer()
 
 
-# -----------------------------
-# Placeholders for other actions (delete, send, download)
-# -----------------------------
-# 1️⃣ Шаг: Запрос подтверждения удаления
 @router.callback_query(F.data.startswith("lesson_delete:"))
 async def lesson_delete_confirm(callback: types.CallbackQuery):
+    """Запрос подтверждения удаления"""
     lesson_id = callback.data.split(":", 1)[1]
     lesson = await safe_get_lesson(lesson_id)
     if not lesson:
@@ -962,18 +953,20 @@ async def lesson_delete_execute(callback: types.CallbackQuery):
     await callback.answer()
 
 
-
 # --- вспомогательные синхронные функции ---
 def mark_lesson_discovered(lesson):
     lesson.is_discovered = True
     lesson.save(update_fields=["is_discovered"])
 
+
 def mark_lesson_downloaded(lesson):
     lesson.is_downloaded = True
     lesson.save(update_fields=["is_downloaded"])
 
+
 def get_blocks_list_sync(lesson):
     return list(lesson.blocks.order_by("order").all())
+
 
 def build_docx_and_save(tmp_path, lesson_title, blocks):
     doc = Document()
@@ -986,11 +979,13 @@ def build_docx_and_save(tmp_path, lesson_title, blocks):
     doc.save(tmp_path)
     return tmp_path
 
+
 # Если track_user_activity — синхронная:
 def track_user_activity_sync(user):
     metrics = track_user_activity(user)  # ваша синхронная функция
     metrics.increment_pdf_download()
     return True
+
 
 # --- сам обработчик ---
 @router.callback_query(F.data.startswith("lesson_download:"))
@@ -1007,7 +1002,8 @@ async def lesson_download(callback: types.CallbackQuery):
         return
 
     try:
-        await get_or_create_user(callback.from_user.id, UserRole.SCHOOL_TEACHER, telegram_username=callback.from_user.username)
+        await get_or_create_user(callback.from_user.id, UserRole.SCHOOL_TEACHER,
+                                 telegram_username=callback.from_user.username)
     except Exception as e:
         pass
 
@@ -1151,11 +1147,9 @@ async def lesson_actions(callback: types.CallbackQuery):
     await callback.answer()
 
 
-# -----------------------
-# Редактирование: показываем подсказку и переводим в состояние ожидания нового текста
-# -----------------------
 @router.callback_query(F.data.startswith("lesson_edit"))
 async def lesson_edit_start(callback: types.CallbackQuery, state: FSMContext):
+    """Редактирование контента урока"""
     parts = callback.data.split(":")
     lesson_id = parts[1] if len(parts) > 1 else None
     block_index = int(parts[2]) if len(parts) > 2 else 1
@@ -1173,8 +1167,6 @@ async def lesson_edit_start(callback: types.CallbackQuery, state: FSMContext):
     block_index = max(1, min(block_index, len(blocks)))
     block = blocks[block_index - 1]
 
-    # Пояснение: нельзя предзаполнить поле ввода у пользователя через Telegram.
-    # Поэтому показываем текущий текст и просим прислать новый.
     prompt = (
         f"✏️ <b>Редактирование блока {block.order} — {sanitize_html(block.title)}</b>\n\n"
         "Текущий текст блока:\n\n"
@@ -1204,7 +1196,6 @@ async def lesson_edit_start(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# Принимаем новый текст от пользователя и сохраняем в блок
 @router.message(EditBlockStates.waiting_for_new_content)
 async def receive_new_block_content(message: types.Message, state: FSMContext):
     data = await state.get_data()
@@ -1246,9 +1237,9 @@ async def receive_new_block_content(message: types.Message, state: FSMContext):
     # обновляем сообщение с блоком (если хотите — можно открыть lesson_view)
     await lesson_view_callback_simulate(message, lesson_id, block_index)
 
-# Вспомогательная функция: обновление/переход к lesson_view (можно вызывать из разных мест)
+
 async def lesson_view_callback_simulate(source_message, lesson_id: str, block_index: int):
-    # reuse logic from lesson_view to display the block
+    # Вспомогательная функция: обновление/переход к lesson_view
     lesson = await safe_get_lesson(lesson_id)
     if not lesson:
         await source_message.answer("⚠️ Урок не найден")
@@ -1273,54 +1264,53 @@ async def lesson_view_callback_simulate(source_message, lesson_id: str, block_in
     except TelegramBadRequest:
         await source_message.answer(text, parse_mode="HTML", reply_markup=kb.as_markup())
 
-# -----------------------
-# Удаление блока и пересчёт order
-# -----------------------
+
 @router.callback_query(F.data.startswith("lesson_delete_block"))
 async def lesson_delete_block(callback: types.CallbackQuery):
+    """Удаление блока и пересчёт order"""
     parts = callback.data.split(":")
     lesson_id = parts[1] if len(parts) > 1 else None
     block_index = int(parts[2]) if len(parts) > 2 else 1
 
     if not lesson_id:
-        await callback.answer("⚠️ Неверные данные", show_alert=True); return
+        await callback.answer("⚠️ Неверные данные", show_alert=True);
+        return
 
     lesson = await safe_get_lesson(lesson_id)
     if not lesson:
-        await callback.answer("⚠️ Урок не найден", show_alert=True); return
+        await callback.answer("⚠️ Урок не найден", show_alert=True);
+        return
 
     blocks = await sync_to_async(list)(lesson.blocks.order_by("order").all())
     total_blocks = len(blocks)
     if total_blocks == 0:
-        await callback.answer("⚠️ Урок пустой", show_alert=True); return
+        await callback.answer("⚠️ Урок пустой", show_alert=True);
+        return
 
     block_index = max(1, min(block_index, total_blocks))
     block_to_delete = blocks[block_index - 1]
 
-    # удаляем блок
     await sync_to_async(block_to_delete.delete)()
 
-    # пересчитываем order у оставшихся блоков
     remaining = await sync_to_async(list)(lesson.blocks.order_by("order").all())
-    # гарантируем последовательность 1..N
+
     for i, b in enumerate(remaining, start=1):
         if b.order != i:
             b.order = i
             await sync_to_async(b.save)()
 
-    # уведомляем пользователя и показываем следующий блок (если есть)
     new_total = len(remaining)
     if new_total == 0:
         await callback.message.answer("✅ Блок удалён. Урок теперь пустой.")
         # можно редиректнуть на детали урока
         try:
-            await safe_edit_text(callback.message, f"📘 <b>Урок:</b> {sanitize_html(lesson.title)}\n\nУрок пуст.", parse_mode="HTML")
+            await safe_edit_text(callback.message, f"📘 <b>Урок:</b> {sanitize_html(lesson.title)}\n\nУрок пуст.",
+                                 parse_mode="HTML")
         except TelegramBadRequest:
             pass
         await callback.answer()
         return
 
-    # если индекс был последний — показываем предыдущий
     new_index = min(block_index, new_total)
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
@@ -1330,10 +1320,6 @@ async def lesson_delete_block(callback: types.CallbackQuery):
     await callback.answer("✅ Блок удалён")
     await lesson_view_callback_simulate(callback.message, str(lesson.id), new_index)
 
-
-# -----------------------
-# Улучшить ИИ: меню и действия
-# -----------------------
 
 def ai_menu_kb(lesson_id: str, block_index: int) -> InlineKeyboardBuilder:
     kb = InlineKeyboardBuilder()
@@ -1353,7 +1339,8 @@ async def lesson_ai_menu(callback: types.CallbackQuery):
     block_index = int(parts[2])
 
     try:
-        await get_or_create_user(callback.from_user.id, UserRole.SCHOOL_TEACHER, telegram_username=callback.from_user.username)
+        await get_or_create_user(callback.from_user.id, UserRole.SCHOOL_TEACHER,
+                                 telegram_username=callback.from_user.username)
     except Exception as e:
         pass
 
@@ -1385,18 +1372,12 @@ async def lesson_ai_menu(callback: types.CallbackQuery):
     await callback.answer()
 
 
-# Человеческие названия режимов для пользователя
-MODE_NAMES_RU = {
-    "complexify": "Усложнить",
-    "simplify": "Упростить",
-    "more_tasks": "Добавить задания",
-    "remove_tasks": "Убрать задания"
-}
-
-# Основной обработчик AI-операций (запускает Celery-задачу)
 @router.callback_query(F.data.startswith("lesson_ai:"))
 async def lesson_ai_apply(callback: types.CallbackQuery):
-    # формат: lesson_ai:{lesson_id}:{block_index}:{mode}
+    """
+    Основной обработчик AI-операций (запускает Celery-задачу)
+    Ожидаемый формат: lesson_ai:{lesson_id}:{block_index}:{mode}
+    """
     parts = callback.data.split(":")
     if len(parts) < 4:
         await callback.answer("Неверные данные", show_alert=True)
@@ -1432,7 +1413,6 @@ async def lesson_ai_apply(callback: types.CallbackQuery):
 
     user = await get_user_by_tg(callback.from_user.id)
 
-    # проверяем, остались ли генерации
     remaining = await sync_to_async(lambda: user.remaining_generations)()
 
     if remaining <= 0:
@@ -1456,23 +1436,19 @@ async def lesson_ai_apply(callback: types.CallbackQuery):
         await callback.answer()
         return
 
-    # списываем одну генерацию
     await sync_to_async(user.decrement_generation)()
 
     block_index = max(1, min(block_index, len(blocks)))
     block = blocks[block_index - 1]
 
-    # создаём ImproveStatus запись
     improve_status = await sync_to_async(ImproveStatus.objects.create)(
         block_id=block.id,
         mode=mode,
         status=ImproveStatus.Status.PENDING,
     )
 
-    # запускаем Celery-задачу
     task = improve_block_task.delay(block.id, mode, improve_status.id)
 
-    # сохраняем task_id
     improve_status.task_id = task.id
     await sync_to_async(improve_status.save)(update_fields=["task_id"])
 
@@ -1481,7 +1457,6 @@ async def lesson_ai_apply(callback: types.CallbackQuery):
     except Exception:
         pass
 
-    # получаем русское название режима для вывода пользователю
     mode_ru = MODE_NAMES_RU.get(mode, mode)
 
     await callback.message.answer(
@@ -1499,6 +1474,10 @@ async def lesson_ai_apply(callback: types.CallbackQuery):
 
 @router.callback_query(F.data.startswith("improve_status:"))
 async def improve_status_handler(callback: types.CallbackQuery):
+    """
+    Обрабатывает обновление статуса улучшения блока:
+    получает текущий статус, формирует клавиатуру и обновляет сообщение.
+    """
     _, improve_id = callback.data.split(":")
 
     try:
@@ -1518,9 +1497,7 @@ async def improve_status_handler(callback: types.CallbackQuery):
 
     lesson_id = improve_status.block.lesson.id
 
-    # Создаём клавиатуру
     kb = InlineKeyboardBuilder()
-    # Кнопка "Обновить статус", если задача ещё выполняется
     if improve_status.status in [ImproveStatus.Status.PENDING, ImproveStatus.Status.IN_PROGRESS]:
         kb.button(text="🔄 Обновить статус", callback_data=f"improve_status:{improve_status.id}")
     kb.button(text="🔙 К уроку", callback_data=f"lesson_detail:{lesson_id}")
@@ -1529,7 +1506,6 @@ async def improve_status_handler(callback: types.CallbackQuery):
 
     if improve_status.status == ImproveStatus.Status.DONE:
         new_text = f"✅ Блок обновлён!\n\n{sanitize_html(improve_status.result_content)}"
-        # редактируем текст и клавиатуру
         await callback.message.edit_text(new_text, parse_mode="HTML", reply_markup=kb.as_markup())
 
     elif improve_status.status == ImproveStatus.Status.FAILED:
@@ -1537,25 +1513,13 @@ async def improve_status_handler(callback: types.CallbackQuery):
         await callback.message.edit_text(new_text, reply_markup=kb.as_markup())
 
     else:
-        # PENDING или IN_PROGRESS — кнопки видны, текст не меняем, просто уведомляем
         await callback.answer("⚙️ Задача в процессе...", show_alert=False)
         try:
-            # пробуем обновить клавиатуру на случай, если её ещё нет
             await callback.message.edit_reply_markup(reply_markup=kb.as_markup())
         except Exception:
-            # игнорируем ошибку "message is not modified"
             pass
 
 
-
-
-
-
-
-# -----------------------------
-# Handlers: Main menu
-# -----------------------------
-# --- вспомогательные функции ---
 @sync_to_async
 def get_lessons_count(user_id: int) -> int:
     return Lesson.objects.filter(creator__telegram_id=user_id).count()
@@ -1566,8 +1530,9 @@ def get_lessons_page(user_id: int, offset: int, limit: int):
     return list(
         Lesson.objects.filter(creator__telegram_id=user_id)
         .order_by("-created_at")
-        .all()[offset:offset+limit]
+        .all()[offset:offset + limit]
     )
+
 
 @router.message(Command("main_menu"))
 @router.callback_query(F.data == "main_menu")
@@ -1578,7 +1543,8 @@ async def main_menu(callback_or_message: types.Union[types.CallbackQuery, types.
         pass
 
     try:
-        await get_or_create_user(callback_or_message.from_user.id, UserRole.SCHOOL_TEACHER, telegram_username=callback_or_message.from_user.username)
+        await get_or_create_user(callback_or_message.from_user.id, UserRole.SCHOOL_TEACHER,
+                                 telegram_username=callback_or_message.from_user.username)
     except Exception as e:
         pass
 
@@ -1617,29 +1583,28 @@ async def main_menu(callback_or_message: types.Union[types.CallbackQuery, types.
             parse_mode="HTML"
         )
     else:
-        # Скрываем кнопки предыдущего сообщения
         if callback_or_message.message.reply_markup:
             try:
                 await callback_or_message.message.edit_reply_markup(reply_markup=None)
             except Exception:
                 pass
 
-        # Отправляем новое сообщение в чат
         await callback_or_message.message.answer(
             text,
             reply_markup=kb.as_markup(),
             parse_mode="HTML"
         )
 
-        # Закрываем "Loading…" у callback
         await callback_or_message.answer()
+
 
 @router.callback_query(F.data == "create_lesson")
 async def create_lesson_start(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(CreateLessonStates.waiting_for_title)
 
     try:
-        await get_or_create_user(callback.from_user.id, UserRole.SCHOOL_TEACHER, telegram_username=callback.from_user.username)
+        await get_or_create_user(callback.from_user.id, UserRole.SCHOOL_TEACHER,
+                                 telegram_username=callback.from_user.username)
     except Exception as e:
         pass
 
@@ -1655,15 +1620,11 @@ async def create_lesson_start(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-
-
-# -----------------------------
-# Handlers: My lessons (list with pagination)
-# -----------------------------
 @router.callback_query(F.data.startswith("my_lessons:"))
 async def my_lessons(callback: types.CallbackQuery):
     try:
-        await get_or_create_user(callback.from_user.id, UserRole.SCHOOL_TEACHER, telegram_username=callback.from_user.username)
+        await get_or_create_user(callback.from_user.id, UserRole.SCHOOL_TEACHER,
+                                 telegram_username=callback.from_user.username)
     except Exception as e:
         pass
 
@@ -1685,11 +1646,10 @@ async def my_lessons(callback: types.CallbackQuery):
         text += f"• {sanitize_html(lesson.title)}\n"
         kb.button(text=lesson.title, callback_data=f"lesson_detail:{lesson.id}")
 
-    # Навигация
     if offset > 0:
-        kb.button(text="⬅️ Назад", callback_data=f"my_lessons:{page-1}")
+        kb.button(text="⬅️ Назад", callback_data=f"my_lessons:{page - 1}")
     if offset + per_page < total:
-        kb.button(text="➡️ Далее", callback_data=f"my_lessons:{page+1}")
+        kb.button(text="➡️ Далее", callback_data=f"my_lessons:{page + 1}")
 
     kb.button(text="🏠 На главную", callback_data="main_menu")
     kb.adjust(1)
@@ -1709,9 +1669,6 @@ async def my_lessons(callback: types.CallbackQuery):
     await callback.answer()
 
 
-# -----------------------------
-# Handlers: Settings
-# -----------------------------
 @router.callback_query(F.data == "settings")
 async def settings(callback: types.CallbackQuery):
     kb = InlineKeyboardBuilder()
@@ -1723,14 +1680,13 @@ async def settings(callback: types.CallbackQuery):
     except Exception:
         pass
 
-    # Отправляем новое сообщение в чат (не редактируем старое)
     await callback.message.answer(
         "⚙️ Чтобы изменить настройки, отправьте /start",
         reply_markup=kb.as_markup()
     )
 
-    # Закрываем "Loading…" у callback
     await callback.answer()
+
 
 @router.callback_query(F.data == "help")
 async def help_cmd(callback: types.CallbackQuery, state: FSMContext):
@@ -1758,18 +1714,17 @@ async def help_cmd(callback: types.CallbackQuery, state: FSMContext):
 
     await callback.answer()
 
-# ----- Состояния техподдержки -----
-class SupportStates(StatesGroup):
-    waiting_message = State()
 
 @router.message(SupportStates.waiting_message)
 async def support_message_handler(message: types.Message):
-    """Сохраняем сообщение пользователя в тикет и обновляем статус на RECEIVED"""
+    """
+    Сохраняем сообщение пользователя в тикет и обновляем статус на RECEIVED
+    Если тикет уже существовал, обновляем его статус на RECEIVED
+    """
     user_id = message.from_user.id
 
     username = message.from_user.username
 
-    # проверка лимита сообщений (10/час)
     hour_ago = timezone.now() - timedelta(hours=1)
 
     recent_count = await sync_to_async(lambda: TicketMessage.objects.filter(
@@ -1781,7 +1736,6 @@ async def support_message_handler(message: types.Message):
         await message.answer("⚠️ Вы превысили лимит: максимум 10 сообщений в час.")
         return
 
-    # Получаем существующий тикет или создаём новый
     ticket, created = await sync_to_async(SupportTicket.objects.get_or_create)(
         user_id=user_id,
         defaults={
@@ -1791,36 +1745,28 @@ async def support_message_handler(message: types.Message):
         }
     )
 
-    # Если тикет уже существовал, обновляем его статус на RECEIVED
     if not created:
         ticket.status = SupportTicket.Status.RECEIVED
         await sync_to_async(ticket.save)()
 
-
-    # Определяем вложение
-    # Начальные значения
     text = message.text or None
     attachment_id = None
 
-    # Фото
     if message.photo:
         attachment_id = message.photo[-1].file_id  # лучше брать последнее фото, оно с наибольшим разрешением
         if message.caption:
             text = message.caption
 
-    # Документ
     elif message.document:
         attachment_id = message.document.file_id
         if message.caption:
             text = message.caption
 
-    # Голосовое сообщение
     elif message.voice:
         attachment_id = message.voice.file_id
         if message.caption:
             text = message.caption
 
-    # Создаём сообщение
     await sync_to_async(TicketMessage.objects.create)(
         ticket=ticket,
         text=text,
@@ -1832,7 +1778,6 @@ async def support_message_handler(message: types.Message):
     except Exception:
         pass
 
-    # Формируем клавиатуру с кнопкой "На главную"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🏠 На главную", callback_data="main_menu")]
     ])

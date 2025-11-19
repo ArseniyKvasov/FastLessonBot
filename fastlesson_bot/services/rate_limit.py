@@ -2,8 +2,8 @@ import redis
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
 
-# лучше вынести в отдельный модуль (например, utils/rate_limit.py)
-r = redis.Redis.from_url(getattr(settings, "REDIS_URL", "redis://localhost:6379/0"))
+REDIS_URL = "redis://redis:6379/0"
+r = redis.Redis.from_url(REDIS_URL)
 
 
 def check_rate_limit(user_id: int, key: str, limit: int = 5, window: int = 60):
@@ -18,7 +18,6 @@ def check_rate_limit(user_id: int, key: str, limit: int = 5, window: int = 60):
     current = r.incr(redis_key)
 
     if current == 1:
-        # первый запрос → TTL
         r.expire(redis_key, window)
 
     if current > limit:

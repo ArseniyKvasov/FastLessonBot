@@ -1,8 +1,14 @@
+import os
+
 from django.utils import timezone
 from asgiref.sync import sync_to_async
-from core.models import User, Lesson, UserRole
 from metrics.models import UserMetrics
+import django
 
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'your_project.settings')
+django.setup()
+
+from core.models import User, Lesson, UserRole
 
 @sync_to_async
 def get_user_by_tg(telegram_id: int):
@@ -10,6 +16,7 @@ def get_user_by_tg(telegram_id: int):
         return User.objects.get(telegram_id=telegram_id)
     except User.DoesNotExist:
         return None
+
 
 @sync_to_async
 def get_or_create_user(telegram_id: int, role: UserRole, telegram_username: str = None):
@@ -27,7 +34,6 @@ def get_or_create_user(telegram_id: int, role: UserRole, telegram_username: str 
         },
     )
 
-    # Проверяем изменения
     changed = False
     if not created:
         if user.role != role:
@@ -41,12 +47,14 @@ def get_or_create_user(telegram_id: int, role: UserRole, telegram_username: str 
 
     return user
 
+
 @sync_to_async
 def set_user_subject(telegram_id: int, subject: str):
     user = User.objects.get(telegram_id=telegram_id)
     user.subject = subject
     user.save()
     return user
+
 
 @sync_to_async
 def set_user_level(telegram_id: int, level: str):
@@ -55,29 +63,25 @@ def set_user_level(telegram_id: int, level: str):
     user.save()
     return user
 
+
 async def create_lesson_for_user(telegram_id: int, title: str, subject: str, level: str):
     user = await get_user_by_tg(telegram_id)
 
-    # создаём урок
     lesson = Lesson(title=title, subject=subject, level=level, creator=user, is_discovered=False)
     await sync_to_async(lesson.save)()
 
     return lesson
 
+
 def track_user_activity(user):
     """
     Обновляет last_active_at и retention_days для пользователя.
-    Ошибки игнорируются, но выводятся подробно для отладки.
     """
     try:
-        print(f"[track_user_activity] user: {user} (type: {type(user)})")
-        print(f"[track_user_activity] user.id: {getattr(user, 'id', None)}")
-        print(f"[track_user_activity] user.username: {getattr(user, 'telegram_username', None)}")
-
         metrics, created = UserMetrics.objects.get_or_create(
             user=user,
             defaults={
-                "registered_at": user.created_at,  # берём из User
+                "registered_at": user.created_at,
                 "last_active_at": timezone.now(),
                 "retention_days": 0,
             }
@@ -86,22 +90,19 @@ def track_user_activity(user):
         if not created:
             metrics.update_last_active()
 
-        print(f"[track_user_activity] metrics: {metrics} (created={created})")
         return metrics
 
     except Exception as e:
-        print(f"[track_user_activity] Ошибка: {e}")
         return None
+
 
 def can_generate_lesson(tg_id: str, lesson: Lesson) -> bool:
     """
     Проверяет, может ли пользователь генерировать данный урок.
-    Возвращает True/False.
     """
     try:
         user = User.objects.get(telegram_id=tg_id)
     except User.DoesNotExist:
         return False
 
-    # обычный пользователь — только свои уроки
     return lesson.creator_id == user.id
