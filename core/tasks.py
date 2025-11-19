@@ -6,7 +6,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from core.models import Lesson, LessonBlock, GenerationStatus, SubjectChoices, ImproveStatus
-from .services.ai import generate_text  # твоя функция генерации
+from .services.ai import generate_text
 
 logger = logging.getLogger(__name__)
 
