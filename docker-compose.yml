@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   web:
     build: .
@@ -8,14 +10,15 @@ services:
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
-    command: >
-      bash -c "
-        python manage.py create_admin &&
-        python -m fastlesson_bot.bot &
-        python manage.py runserver 0.0.0.0:8000
-      "
     volumes:
       - .:/app
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
 
   celery:
     build: .
@@ -40,3 +43,6 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
     volumes:
       - .:/app
+
+volumes:
+  redis_data:
