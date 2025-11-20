@@ -1,22 +1,42 @@
-version: '3.8'
-
 services:
-  fastlesson:
+  web:
     build: .
     ports:
       - "8000:8000"
-    environment:
-      - DJANGO_SETTINGS_MODULE=fastlesson.settings
-      - REDIS_URL=redis://redis:6379/0
     depends_on:
       - redis
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    command: >
+      bash -c "
+        python manage.py create_admin &&
+        python -m fastlesson_bot.bot &
+        python manage.py runserver 0.0.0.0:8000
+      "
     volumes:
-      - redis_data:/data
+      - .:/app
 
-volumes:
-  redis_data:
+  celery:
+    build: .
+    command: celery -A fastlesson worker -l INFO
+    depends_on:
+      - redis
+      - web
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    volumes:
+      - .:/app
+
+  celery-beat:
+    build: .
+    command: celery -A fastlesson beat -l INFO
+    depends_on:
+      - redis
+      - web
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    volumes:
+      - .:/app
