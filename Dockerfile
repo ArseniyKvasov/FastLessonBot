@@ -17,4 +17,4 @@ RUN python manage.py collectstatic --noinput
 RUN python manage.py makemigrations
 RUN python manage.py migrate
 
-CMD ["bash", "-c", "python manage.py create_admin && python -m fastlesson_bot.bot & celery -A fastlesson beat -l INFO --uid=nobody & celery -A fastlesson worker -l INFO --uid=nobody & python manage.py runserver 0.0.0.0:8000"]
+CMD ["bash", "-c", "python manage.py create_admin && python -m fastlesson_bot.bot & celery -A fastlesson beat -l INFO & celery -A fastlesson worker -l INFO & python manage.py runserver 0.0.0.0:8000"]
